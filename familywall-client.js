@@ -1,3 +1,5 @@
+import Family from "./Family.js";
+
 function encode(data) {
   return encodeURI;
 }
@@ -17,6 +19,8 @@ export default class FamilyWallClient {
     this.jsessionid = null;
     this.timezone =
       options.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    this.members = [];
+    this.family = null;
   }
 
   async apiFetch(endpoint, body, method = "POST") {
@@ -54,7 +58,7 @@ export default class FamilyWallClient {
     });
   }
 
-  async login(email, password) {
+  async login(email, password, attempts = 0) {
     const body = {
       partnerScope: "Family",
       a01call: "log2get",
@@ -66,14 +70,23 @@ export default class FamilyWallClient {
 
     const response = await this.apiFetch("log2in", body);
     const headers = response.headers;
-    console.log(headers);
+    console.log(JSON.stringify(headers, null, 2));
     this.jsessionid = headers
       .get("set-cookie")
-      .split(";")[0]
-      .replace("JSESSIONID=", "");
+      ?.split(";")?.[0]
+      ?.replace("JSESSIONID=", "");
+    if (!this.jsessionid) {
+      if (attempts < 3) {
+        await this.login(email, password, attempts + 1);
+        return;
+      }
+      console.error("Failed to login");
+      return;
+    }
     this.cookie = setCookie(this.jsessionid);
-    await this.webset();
-    await this.webget();
+
+    await this._webset();
+    await this._webget();
   }
 
   async getWebSocketUrl() {
@@ -88,7 +101,7 @@ export default class FamilyWallClient {
     return (this.webSocketUrl = json?.["a00"]?.["r"]?.["r"]);
   }
 
-  async webset() {
+  async _webset() {
     const body = {
       partnerScope: "Family",
       var: "a",
@@ -100,7 +113,7 @@ export default class FamilyWallClient {
     return json;
   }
 
-  async webget() {
+  async _webget() {
     const body = {
       partnerScope: "Family",
       var: "a",
@@ -128,17 +141,11 @@ export default class FamilyWallClient {
 
     const response = await this.apiFetch("accgetallfamily", body);
     const json = await response.json();
+    this.members = json?.["a01"]?.["r"]?.["r"];
+    this.family = json?.["a02"]?.["r"]?.["r"];
     return json;
   }
-
-  async getProfiles() {
-    const body = {
-      partnerScope: "Family",
-    };
-
-    const response = await this.apiFetch("prfgetProfiles", body);
-
-    const json = await response.json();
-    return json;
+  async getFamily() {
+    return new Family(await this.getAllFamily());
   }
 }
